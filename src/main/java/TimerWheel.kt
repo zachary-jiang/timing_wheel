@@ -1,4 +1,4 @@
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.LockSupport
 
@@ -8,10 +8,10 @@ class TimerWheel(private val wheelSize: Int = 60) {
     private var wheel: Array<Slot> = Array(wheelSize) { Slot() }
     private var started: AtomicBoolean = AtomicBoolean(false)
     private val ticker: Ticker = Ticker()
-    private val newTasks = ConcurrentLinkedQueue<DelayTask>()
+    private val newTasks = MpscQueue<DelayTask>()
 
     class Slot {
-        val tasks = ConcurrentLinkedQueue<DelayTask>()
+        val tasks = ArrayDeque<DelayTask>()
 
         fun runWithDeadline(tickTime: Long) {
             val iterator = tasks.iterator()
@@ -43,7 +43,7 @@ class TimerWheel(private val wheelSize: Int = 60) {
 
     fun addDelayTask(runnable: Runnable, delayMs: Long) {
         val deadline = System.currentTimeMillis() + delayMs
-        newTasks.add(DelayTask(runnable, deadline, 0)) // round will be calculated in ticker thread
+        newTasks.offer(DelayTask(runnable, deadline, 0)) // round will be calculated in ticker thread
     }
 
     data class DelayTask(
@@ -57,7 +57,7 @@ class TimerWheel(private val wheelSize: Int = 60) {
         override fun run() {
             startTime = System.currentTimeMillis()
             while (started.get()) {
-                while(newTasks.isNotEmpty()) {
+                while(!newTasks.isEmpty()) {
                     val task = newTasks.poll()
                     if (task != null) {
                         val delayMs = task.deadline - System.currentTimeMillis()
